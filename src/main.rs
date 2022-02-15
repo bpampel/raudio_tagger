@@ -1,0 +1,18 @@
+use std::env;
+use std::process;
+
+use raudio_tagger::Config;
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let config = Config::new(&args).unwrap_or_else(|err| {
+        eprintln!("Problem parsing arguments: {}", err);
+        process::exit(1);
+    });
+
+    if let Err(e) = raudio_tagger::read_bytewise_from_file(&config.filename) {
+        eprintln!("Application error: {}", e);
+
+        process::exit(1);
+    }
+}
