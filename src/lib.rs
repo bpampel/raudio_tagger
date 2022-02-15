@@ -21,7 +21,12 @@ pub fn run(config: &Config) -> Result<(), Box<dyn Error>> {
     let binary_data = read_bytewise_from_file(&config.filename)?;
     let mut f_tags = FileTags::new();
 
-    let stripped_data = extract_id3(&binary_data, &f_tags)?;
+    match extract_id3(&binary_data, &mut f_tags) {
+        Ok(_) => (),
+        Err(TagError::ParseError) => panic!("Tag found but could not be parsed"),
+        Err(_) => (),  // supress other warnings for the moment
+    }
+    //let stripped_data = extract_id3(&binary_data, &f_tags)?;
     //println!("{:?}", &binary_data[binary_data.len()-128..]);
     //println!("{:?}", &stripped_data);
 
@@ -42,15 +47,15 @@ pub fn read_bytewise_from_file(filename: &str) -> Result<Vec<u8>, io::Error> {
     Ok(buffer)
 }
 
-pub fn extract_id3(data: &[u8], f_tags: &FileTags) -> Result<(), Box<dyn Error>> {
-    // Check if it is ID3v1 at end of file
-    let start_of_tag = data.len() - ID3v1::LEN_BYTES;
-
-    match &data[start_of_tag..start_of_tag + 3] {
-        b"TAG" => f_tags.id3v1 = ID3v1::create_from_binary(&data)?,
+pub fn extract_id3(data: &[u8], f_tags: &mut FileTags) -> Result<(), TagError> {
+    let mut id3v1_tags = ID3v1::create_from_binary(&data);
+    match id3v1_tags {
+        Ok(x) => {f_tags.id3v1 = Some(x);} ,
+        Err(TagError::TagsNotFoundError) => (),  // ignore if not found
+        Err(e) => return Err(e) //propagate any other error
     }
-    //match &data[..3] {
-        // Check if it is ID3v2
+    Ok(())
+    //f_tags.id3v1 = Some(
         //b"ID3" => {
             //let id3_len = (data[6] as usize) * 128 * 128 * 128
                 //+ (data[7] as usize) * 128 * 128
@@ -102,14 +107,11 @@ pub struct ID3v1 {
     year: u32,
     comment: String,
     track: Option<u8>,
-    genre: String,
+    genre: u8,
 }
 
 impl ID3v1 {
     pub const LEN_BYTES: usize = 128;
-
-    //pub fn create_from_binary(data: &[u8]) -> Result<ID3v1, &str> {
-    //}
 
     pub fn create_from_binary(file_data: &[u8]) -> Result<ID3v1, TagError> {
         // the tag is in the last 128 bytes starting with the string 'TAG'
@@ -130,12 +132,36 @@ impl ID3v1 {
             b"TAG" => {  // tag was found
                 // slice the relevant part
                 let id3_data = &file_data[start_of_tag..];
-                // extract
-                let title = str::from_utf8(&id3_data[3..32]);
-                let artist = str::from_utf8(&id3_data[33..62]);
+                // extract: I think the conversions should be always valid
+                let title = str::from_utf8(&id3_data[3..32]).unwrap().to_string();
+                let artist = str::from_utf8(&id3_data[33..62]).unwrap().to_string();
+                let album = str::from_utf8(&id3_data[63..92]).unwrap().to_string();
                 let year = u32::from_ne_bytes(id3_data[93..96].try_into().unwrap());
-                ID3v1::create_from_binary(&file_data)
+
+                // logic for the optional track number depending on the zero byte
+                let mut track: Option<u8> = None;
+                let comment: String;
+                match id3_data[125] {
+                    0u8 => {  // byte is zero, check if year is set
+                        match id3_data[126] {
+                            0u8 => {  // no year --> comment
+                                comment = str::from_utf8(&id3_data[97..126]).unwrap().to_string();
+                            }
+                            t => {  // year is set
+                                track = Some(t);
+                                comment = str::from_utf8(&id3_data[97..124]).unwrap().to_string();
+                            }
+                        }
+                    }
+                    _ => {  // byte is non-zero --> long comment
+                            comment = str::from_utf8(&id3_data[97..126]).unwrap().to_string();
+                    }
                 }
+                let genre = &id3_data[127];
+
+
+                Ok(ID3v1 { title, artist, album, year, comment, track, genre: *genre})
+            }
             _ => return Err(TagError::TagsNotFoundError)
         }
     }
