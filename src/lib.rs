@@ -2,6 +2,7 @@ use std::error::Error;
 use std::io;
 use std::io::Read;
 use std::io::BufReader;
+use std::fmt;
 use std::fs::File;
 use std::str;
 
@@ -24,14 +25,12 @@ pub fn run(config: &Config) -> Result<(), Box<dyn Error>> {
     match extract_id3(&binary_data, &mut f_tags) {
         Ok(_) => (),
         Err(TagError::ParseError) => panic!("Tag found but could not be parsed"),
-        Err(_) => (),  // supress other warnings for the moment
+        Err(e) => panic!("Some other error: {:?}",e),  // supress other warnings for the moment
     }
-    //let stripped_data = extract_id3(&binary_data, &f_tags)?;
-    //println!("{:?}", &binary_data[binary_data.len()-128..]);
-    //println!("{:?}", &stripped_data);
-
-    //let start_of_tag = binary_data.len() - ID3v1::LEN_BYTES;
-    //println!("{:?}", &binary_data[start_of_tag..]);
+    match f_tags.id3v1 {
+        Some(x) => println!("{}", x),
+        None => (),
+    }
 
     Ok(())
 }
@@ -136,7 +135,8 @@ impl ID3v1 {
                 let title = str::from_utf8(&id3_data[3..32]).unwrap().to_string();
                 let artist = str::from_utf8(&id3_data[33..62]).unwrap().to_string();
                 let album = str::from_utf8(&id3_data[63..92]).unwrap().to_string();
-                let year = u32::from_ne_bytes(id3_data[93..96].try_into().unwrap());
+                //let year = u32::from_ne_bytes(id3_data[93..96].try_into().unwrap());
+                let year = 12u32;
 
                 // logic for the optional track number depending on the zero byte
                 let mut track: Option<u8> = None;
@@ -163,6 +163,16 @@ impl ID3v1 {
                 Ok(ID3v1 { title, artist, album, year, comment, track, genre: *genre})
             }
             _ => return Err(TagError::TagsNotFoundError)
+        }
+    }
+
+}
+
+impl fmt::Display for ID3v1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.track {
+            Some(t) => write!(f, "title: {}\nartist: {}\nalbum: {}\nyear: {}\ncomment: {}\ntrack: {}\ngenre: {}", self.title, self.artist,self.album,self.year,self.comment,t,self.genre),
+            None => write!(f, "title: {}\nartist: {}\nalbum: {}\nyear: {}\ncomment: {}\ntrack: {}\ngenre:", self.title, self.artist,self.album,self.year,self.comment,self.genre),
         }
     }
 
