@@ -54,22 +54,7 @@ pub fn extract_id3(data: &[u8], f_tags: &mut FileTags) -> Result<(), TagError> {
         Err(e) => return Err(e) //propagate any other error
     }
     Ok(())
-    //f_tags.id3v1 = Some(
-        //b"ID3" => {
-            //let id3_len = (data[6] as usize) * 128 * 128 * 128
-                //+ (data[7] as usize) * 128 * 128
-                //+ (data[8] as usize) * 128
-                //+ (data[9] as usize);
-
-            //return Ok(&data[10 + id3_len..]);
-        //}
-    //}
 }
-
-
-//pub struct Format {
-    //fields: Vec<String>,
-//}
 
 
 pub struct Config {
@@ -103,7 +88,7 @@ pub struct ID3v1 {
     title: String,
     artist: String,
     album: String,
-    year: u32,
+    year: u64,
     comment: String,
     track: Option<u8>,
     genre: u8,
@@ -131,12 +116,18 @@ impl ID3v1 {
             b"TAG" => {  // tag was found
                 // slice the relevant part
                 let id3_data = &file_data[start_of_tag..];
+
                 // extract: I think the conversions should be always valid
-                let title = str::from_utf8(&id3_data[3..32]).unwrap().to_string();
-                let artist = str::from_utf8(&id3_data[33..62]).unwrap().to_string();
-                let album = str::from_utf8(&id3_data[63..92]).unwrap().to_string();
-                //let year = u32::from_ne_bytes(id3_data[93..96].try_into().unwrap());
-                let year = 12u32;
+                let title = unsafe_u8_to_str(&id3_data[3..33]).to_string();
+                let artist = unsafe_u8_to_str(&id3_data[33..63]).to_string();
+                let album = unsafe_u8_to_str(&id3_data[63..93]).to_string();
+
+                // year is stored as string, transfer to int
+                let year_str = unsafe_u8_to_str(&id3_data[93..97]);
+                let year = match str::parse::<u64>(year_str) {
+                    Ok(x) => x,
+                    Err(_) => return Err(TagError::ParseError),
+                };
 
                 // logic for the optional track number depending on the zero byte
                 let mut track: Option<u8> = None;
@@ -145,16 +136,16 @@ impl ID3v1 {
                     0u8 => {  // byte is zero, check if year is set
                         match id3_data[126] {
                             0u8 => {  // no year --> comment
-                                comment = str::from_utf8(&id3_data[97..126]).unwrap().to_string();
+                                comment = unsafe_u8_to_str(&id3_data[97..127]).to_string();
                             }
                             t => {  // year is set
                                 track = Some(t);
-                                comment = str::from_utf8(&id3_data[97..124]).unwrap().to_string();
+                                comment = unsafe_u8_to_str(&id3_data[97..125]).to_string();
                             }
                         }
                     }
                     _ => {  // byte is non-zero --> long comment
-                            comment = str::from_utf8(&id3_data[97..126]).unwrap().to_string();
+                            comment = unsafe_u8_to_str(&id3_data[97..127]).to_string();
                     }
                 }
                 let genre = &id3_data[127];
@@ -165,7 +156,6 @@ impl ID3v1 {
             _ => return Err(TagError::TagsNotFoundError)
         }
     }
-
 }
 
 impl fmt::Display for ID3v1 {
@@ -179,6 +169,38 @@ impl fmt::Display for ID3v1 {
 }
 
 
+
+fn unsafe_u8_to_str(u8data: &[u8]) -> &str {
+    str::from_utf8(&u8data).unwrap()
+}
+
+pub struct BitArray {
+    bits: [bool; 8],
+    big_endian: bool,
+}
+
+impl BitArray {
+    pub fn create_from_byte(byte: u8, big_endian: bool) -> Result<BitArray, ()> {
+        let mut tmp_byte = byte;
+        let mut tmp_arr = [false; 8];  // initialize to 0
+        //match big_endian {
+            //true => tmp_byte = byte.to_be(),
+            //false => tmp_byte = byte.to_le(),
+        //}
+        for i in 0..8 {  // loop over bits
+            let last_bit = (tmp_byte % 2) == 1;  // set to true or false
+            match big_endian {
+                true => { tmp_arr[7-i] = last_bit; },  // from back
+                false => { tmp_arr[i] = last_bit; },
+                }
+            tmp_byte = tmp_byte >> 1;  // shift to next byte
+
+        }
+        Ok(BitArray { bits: tmp_arr, big_endian } )
+
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +210,12 @@ mod tests {
         let filename = "Test.mp3";
         let first_byte = 73u8;
         assert_eq!(first_byte, read_bytewise_from_file(filename).unwrap()[0]);
+    }
+    #[test]
+    fn test_to_bitarray() {
+        let byte = 5u8;
+        let bitarr = BitArray::create_from_byte(byte, true).unwrap();
+        let result = [false,false,false,false,false,true,false,true]; // 5 in bits, big endian
+        assert_eq!(bitarr.bits, result);
     }
 }
