@@ -90,12 +90,12 @@ impl FileTags {
     }
     pub fn print_tags(self) {
         match self.id3v1 {
-            Some(x) => println!("id3v1 found:\n{}", x),
-            None => println!("id3v1 not found\n"),
+            Some(x) => println!("\nid3v1 found:\n{}", x),
+            None => println!("\nid3v1 not found\n"),
         }
         match self.id3v2 {
-            Some(x) => println!("id3v2 found:\n{}", x),
-            None => println!("id3v2 not found\n"),
+            Some(x) => println!("\nid3v2 found:\n{}", x),
+            None => println!("\nid3v2 not found\n"),
         }
     }
 }
@@ -192,6 +192,7 @@ pub struct ID3v2 {
     unsynchronization: bool,
     extended_header: bool,
     experimental_indicator: bool,
+    size: u32,
     //title: String,
     //artist: String,
     //album: String,
@@ -215,22 +216,27 @@ impl ID3v2 {
                 let unsynchronization = flags.bits[0];
                 let extended_header = flags.bits[1];
                 let experimental_indicator = flags.bits[2];
-                //{
-                    //Ok(x) => x,
-                    //Err(x) => return Err(TagError::ParseError),
-                //}
+                let size = ID3v2::calculate_size(&header);
 
-                Ok(ID3v2 { id3_version: *id3_version, id3_revision: *id3_revision, unsynchronization, extended_header, experimental_indicator })
-                //Ok(ID3v2 { title, artist, album, year, comment, track, genre: *genre})
+                Ok(ID3v2 { id3_version: *id3_version, id3_revision: *id3_revision, unsynchronization, extended_header, experimental_indicator, size })
             }
             _ => return Err(TagError::TagsNotFoundError)
         }
+    }
+    pub fn calculate_size(header: &[u8]) -> u32 {
+        // without the first 10 bytes
+        // encoded as 4 bytes with 7 bits:
+        // cast to u32, use only last 7 bits and shift accordingly
+        (header[9] as u32 & 0x7F)
+            + ((header[8] as u32 & 0x7F) << 7)
+            + ((header[7] as u32 & 0x7F) << 14)
+            + ((header[6] as u32 & 0x7F) << 21)
     }
 }
 
 impl fmt::Display for ID3v2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "id3_version: {}\nid3_revision: {}\nunsynchronization: {}\nextended_header: {}\nexperimental_indicator: {}\n",self.id3_version, self.id3_revision,self.unsynchronization,self.extended_header,self.experimental_indicator)
+        write!(f, "id3_version: {}\nid3_revision: {}\nunsynchronization: {}\nextended_header: {}\nexperimental_indicator: {}\nsize: {}\n",self.id3_version, self.id3_revision,self.unsynchronization,self.extended_header,self.experimental_indicator,self.size)
     }
 
 }
