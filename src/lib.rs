@@ -216,23 +216,42 @@ impl ID3v2 {
                 let unsynchronization = flags.bits[0];
                 let extended_header = flags.bits[1];
                 let experimental_indicator = flags.bits[2];
-                let size = ID3v2::calculate_size(&header);
+                let size = ID3v2::calculate_size(&header[6..10]);
 
                 Ok(ID3v2 { id3_version: *id3_version, id3_revision: *id3_revision, unsynchronization, extended_header, experimental_indicator, size })
             }
             _ => return Err(TagError::TagsNotFoundError)
         }
     }
-    pub fn calculate_size(header: &[u8]) -> u32 {
+    fn calculate_size(bytes: &[u8]) -> u32 {
         // without the first 10 bytes
         // encoded as 4 bytes with 7 bits:
         // cast to u32, use only last 7 bits and shift accordingly
-        (header[9] as u32 & 0x7F)
-            + ((header[8] as u32 & 0x7F) << 7)
-            + ((header[7] as u32 & 0x7F) << 14)
-            + ((header[6] as u32 & 0x7F) << 21)
+        (bytes[3] as u32 & 0x7F)
+            + ((bytes[2] as u32 & 0x7F) << 7)
+            + ((bytes[1] as u32 & 0x7F) << 14)
+            + ((bytes[0] as u32 & 0x7F) << 21)
+    }
+    fn parse_frame(header: &[u8], init: u32, version: u8) -> Result<ID3v2Frame, TagError> {
+        match version {
+            2 => return Err(TagError::ParseError),  // currently not supported
+            3 | 4 => (),
+            _ => return Err(TagError::ParseError),
+        }
+        Ok(ID3v2Frame { version: 3u8, id: String::new(), size: 0u32, flags: [BitArray::default(),BitArray::default()]})
     }
 }
+
+#[derive(Default)]
+pub struct ID3v2Frame {
+    version: u8,  // distinguish between v2 and later, as id changed size
+    id: String,
+    size: u32,
+    flags: [BitArray; 2],
+}
+
+
+
 
 impl fmt::Display for ID3v2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -246,6 +265,7 @@ fn unsafe_u8_to_str(u8data: &[u8]) -> &str {
     str::from_utf8(&u8data).unwrap()
 }
 
+#[derive(Default)]
 pub struct BitArray {
     bits: [bool; 8],
     big_endian: bool,
@@ -283,7 +303,14 @@ mod tests {
     fn test_to_bitarray() {
         let byte = 5u8;
         let bitarr = BitArray::create_from_byte(byte, true);
-        let result = [false,false,false,false,false,true,false,true]; // 5 in bits, big endian
-        assert_eq!(bitarr.bits, result);
+        let expected = [false,false,false,false,false,true,false,true]; // 5 in bits, big endian
+        assert_eq!(bitarr.bits, expected);
+    }
+    #[test]
+    fn test_id3v2_size() {
+        let bytes: [u8;4] = [1, 5, 7, 3]; // 0000001000010100001110000011
+        let size = ID3v2::calculate_size(&bytes);
+        let expected: u32 = 2097152 + 81920 + 896 + 3;
+        assert_eq!(size, expected);
     }
 }
