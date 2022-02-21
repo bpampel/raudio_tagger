@@ -10,9 +10,11 @@ fn main() {
         process::exit(1);
     });
 
-    if let Err(e) = raudio_tagger::read_bytewise_from_file(&config.filename) {
+    if let Err(e) = raudio_tagger::run(&config) {
         eprintln!("Application error: {}", e);
 
         process::exit(1);
+
+
     }
 }
