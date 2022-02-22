@@ -128,12 +128,12 @@ impl ID3v2 {
                 let size = ID3v2::calculate_size(&header[6..10]);
                 let mut first_byte: usize = 10;
                 let mut frames = Vec::new();
-                while first_byte < size {
+                while first_byte < size - 10 {  // size excludes header
                     let frame = ID3v2::parse_frame(&file_data, first_byte, *id3_version);
                     match frame {
                         Ok(x) => {
                             frames.push(x.0);
-                            first_byte = x.1 + 1;  // x.1 contains last byte of parsed frame
+                            first_byte = x.1;  // x.1 contains last byte of parsed frame
                         }
                         Err(e) => return Err(e),
                     }
@@ -170,7 +170,7 @@ impl ID3v2 {
                     ];
                     let frame = ID3v2Frame::create_from_bytes(&file_data[init..(init+10+size)], version, id, size, flags);
                     match frame {
-                        Ok(x) => Ok((x, init+size)),
+                        Ok(x) => Ok((x, init+size+10)),  // number of next byte after current frame
                         Err(e) => Err(e)
                     }
                 }
