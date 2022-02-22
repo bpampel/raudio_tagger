@@ -145,21 +145,21 @@ impl ID3v2 {
             + ((bytes[1] as u32 & 0x7F) << 14)
             + ((bytes[0] as u32 & 0x7F) << 21)
     }
-        fn parse_frame(header: &[u8], init: usize, version: u8) -> Result<ID3v2Frame, TagError> {
+        fn parse_frame(file_data: &[u8], init: usize, version: u8) -> Result<ID3v2Frame, TagError> {
             let id: String;
             let size: u32;
             match version {
                 2 => return Err(TagError::ParseError),  // currently not supported
                 3 | 4 => {
-                    let id = unsafe_u8_to_str(&header[init..init+4]).to_string();
+                    let id = unsafe_u8_to_str(&file_data[init..init+4]).to_string();
                     println!("id: {}", id);
-                    let size_vec = header[init+4..init+8].to_vec();
+                    let size_vec = file_data[init+4..init+8].to_vec();
                     let size = read_be_u32(&mut &size_vec[..]) as usize;
                     let flags = [
-                        BitArray::create_from_byte(header[init+9], true),
-                        BitArray::create_from_byte(header[init+9], true),
+                        BitArray::create_from_byte(file_data[init+9], true),
+                        BitArray::create_from_byte(file_data[init+9], true),
                     ];
-                    return ID3v2Frame::create_from_bytes(&header[init..(init+10+size)], version, id, size, flags)
+                    return ID3v2Frame::create_from_bytes(&file_data[init..(init+10+size)], version, id, size, flags)
                 }
             _ => return Err(TagError::ParseError)
             }
