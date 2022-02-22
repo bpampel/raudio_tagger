@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt;
 use std::io;
 use std::io::Read;
 use std::io::BufReader;
@@ -6,7 +7,6 @@ use std::fs::File;
 use std::str;
 
 mod id3;
-
 
 #[derive(Debug)]
 pub enum TagError {
@@ -18,6 +18,15 @@ pub enum TagError {
     HeaderError,
     IoError(io::Error),
     Utf8Error(str::Utf8Error),
+    FromUtf8Error(std::string::FromUtf8Error),
+}
+
+impl std::error::Error for TagError{}
+
+impl fmt::Display for TagError{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "something went wrong… maybe be more explicit?")
+    }
 }
 
 pub fn run(config: &Config) -> Result<(), Box<dyn Error>> {

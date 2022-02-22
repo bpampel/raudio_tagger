@@ -2,9 +2,11 @@
 ///!
 ///! Both id3v1 and id3v2 are supported
 
+use std::error;
 use std::fmt;
 use std::str;
 use crate::TagError;
+use encoding_rs;
 
 pub struct ID3v1 {
     title: String,
@@ -17,6 +19,7 @@ pub struct ID3v1 {
 }
 
 impl ID3v1 {
+    // v1 tags have a fixed size
     pub const LEN_BYTES: usize = 128;
 
     pub fn create_from_binary(file_data: &[u8]) -> Result<ID3v1, TagError> {
@@ -122,6 +125,11 @@ impl ID3v2 {
                 let extended_header = flags.bits[1];
                 let experimental_indicator = flags.bits[2];
                 let size = ID3v2::calculate_size(&header[6..10]);
+                let frame = ID3v2::parse_frame(&file_data, 10, *id3_version);
+                match frame {
+                    Ok(x) => println!("printing data: {}", x.data),
+                    Err(_) => println!("failed"),
+                }
 
                 Ok(ID3v2 { id3_version: *id3_version, id3_revision: *id3_revision, unsynchronization, extended_header, experimental_indicator, size })
             }
@@ -137,22 +145,92 @@ impl ID3v2 {
             + ((bytes[1] as u32 & 0x7F) << 14)
             + ((bytes[0] as u32 & 0x7F) << 21)
     }
-    fn parse_frame(header: &[u8], init: u32, version: u8) -> Result<ID3v2Frame, TagError> {
-        match version {
-            2 => return Err(TagError::ParseError),  // currently not supported
-            3 | 4 => (),
-            _ => return Err(TagError::ParseError),
+        fn parse_frame(header: &[u8], init: usize, version: u8) -> Result<ID3v2Frame, TagError> {
+            let id: String;
+            let size: u32;
+            match version {
+                2 => return Err(TagError::ParseError),  // currently not supported
+                3 | 4 => {
+                    let id = unsafe_u8_to_str(&header[init..init+4]).to_string();
+                    println!("id: {}", id);
+                    let size_vec = header[init+4..init+8].to_vec();
+                    let size = read_be_u32(&mut &size_vec[..]) as usize;
+                    let flags = [
+                        BitArray::create_from_byte(header[init+9], true),
+                        BitArray::create_from_byte(header[init+9], true),
+                    ];
+                    return ID3v2Frame::create_from_bytes(&header[init..(init+10+size)], version, id, size, flags)
+                }
+            _ => return Err(TagError::ParseError)
+            }
         }
-        Ok(ID3v2Frame { version: 3u8, id: String::new(), size: 0u32, flags: [BitArray::default(),BitArray::default()]})
     }
-}
 
-#[derive(Default)]
-pub struct ID3v2Frame {
-    version: u8,  // distinguish between v2 and later, as id changed size
-    id: String,
-    size: u32,
-    flags: [BitArray; 2],
+    #[derive(Default)]
+    pub struct ID3v2Frame {
+        version: u8,  // distinguish between v2 and later, as id changed size
+        id: String,
+        size: usize,
+        flags: [BitArray; 2],
+        data: String,
+    }
+
+impl ID3v2Frame {
+    pub fn create_from_bytes(bytes: &[u8], version: u8, id: String, size: usize, flags: [BitArray;2]) -> Result<ID3v2Frame, TagError> {
+        let data = match id.chars().next().unwrap() {
+            T => { // text field
+                let encoding = bytes[10];
+                ID3v2Frame::decode_text_frame(&bytes[11..], encoding)?
+            }
+            x => {
+                println!("{}",x);
+                return Err(TagError::ParseError)
+            }
+        };
+        //let data = match data_res {
+            //Ok(x) => x,
+            //Err(_) => return Err(TagError::ParseError),
+        //}
+        Ok(ID3v2Frame { version, id: id, size, flags, data} )
+    }
+    fn decode_text_frame(text_bytes: &[u8], encoding: u8) -> Result<String, TagError> {
+        match encoding {
+            0 => {  // ISO-8859-1
+                return Err(TagError::ParseError)
+            }
+            1 => {  // UTF-16
+                //let iter = (1..size)
+                    //.map(|i| u16::from_be_bytes(&[bytes[2*i],&bytes[2*i+1]));
+               ////for c in char::decode_utf16(bytes[1..]) {
+                    //data = decode_utf16(iter).collect::<String>().ok();
+                //let u16vec = BigEndian::read_u16(&bytes[1..]);
+                //for elem in u16vec[..] {
+                    //data.push(String::from_utf16(elem));
+                return Err(TagError::ParseError)
+            }
+            2 => {  // UTF-16BE
+                //let data = String::new();
+                //let mut decoder = encoding_rs::UTF_16BE.new_decoder();
+                //decoder.decode_to_string(&text_bytes[11..], &mut data, true);
+                //println!("{}", data);
+                return Err(TagError::ParseError)
+            }
+            3 => {  // UTF-8
+                match String::from_utf8(text_bytes.to_vec()) {
+                    Ok(x) => Ok(x),
+                    Err(e) => return Err(TagError::FromUtf8Error(e)),
+                }
+            }
+            _ => {
+                println!("no encoding match");
+                return Err(TagError::ParseError)
+            }
+        }
+    }
+    pub fn id_to_fieldname(id: &str) -> String {
+        ///! lookup function that translates the frame ids to human readable strings
+        String::new()
+    }
 }
 
 
@@ -191,11 +269,16 @@ impl BitArray {
     }
 }
 
-// helper functions
 fn unsafe_u8_to_str(u8data: &[u8]) -> &str {
     str::from_utf8(&u8data).unwrap()
 }
 
+// from rust docs
+fn read_be_u32(input: &mut &[u8]) -> u32 {
+    let (int_bytes, rest) = input.split_at(std::mem::size_of::<u32>());
+    *input = rest;
+    u32::from_be_bytes(int_bytes.try_into().unwrap())
+}
 
 #[cfg(test)]
 mod tests {
