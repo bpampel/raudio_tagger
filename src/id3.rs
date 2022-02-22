@@ -100,7 +100,8 @@ pub struct ID3v2 {
     unsynchronization: bool,
     extended_header: bool,
     experimental_indicator: bool,
-    size: u32,
+    size: usize,
+    frames: Vec<ID3v2Frame>,
     //title: String,
     //artist: String,
     //album: String,
@@ -125,27 +126,35 @@ impl ID3v2 {
                 let extended_header = flags.bits[1];
                 let experimental_indicator = flags.bits[2];
                 let size = ID3v2::calculate_size(&header[6..10]);
-                let frame = ID3v2::parse_frame(&file_data, 10, *id3_version);
-                match frame {
-                    Ok(x) => println!("printing data: {}", x.data),
-                    Err(_) => println!("failed"),
+                let mut first_byte: usize = 10;
+                let mut frames = Vec::new();
+                while first_byte < size {
+                    let frame = ID3v2::parse_frame(&file_data, first_byte, *id3_version);
+                    match frame {
+                        Ok(x) => {
+                            frames.push(x.0);
+                            first_byte = x.1 + 1;  // x.1 contains last byte of parsed frame
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
 
-                Ok(ID3v2 { id3_version: *id3_version, id3_revision: *id3_revision, unsynchronization, extended_header, experimental_indicator, size })
+                Ok(ID3v2 { id3_version: *id3_version, id3_revision: *id3_revision, unsynchronization, extended_header, experimental_indicator, size, frames })
             }
             _ => return Err(TagError::TagsNotFoundError)
         }
     }
-    fn calculate_size(bytes: &[u8]) -> u32 {
+    fn calculate_size(bytes: &[u8]) -> usize {
         // without the first 10 bytes
         // encoded as 4 bytes with 7 bits:
         // cast to u32, use only last 7 bits and shift accordingly
-        (bytes[3] as u32 & 0x7F)
+        ((bytes[3] as u32 & 0x7F)
             + ((bytes[2] as u32 & 0x7F) << 7)
             + ((bytes[1] as u32 & 0x7F) << 14)
             + ((bytes[0] as u32 & 0x7F) << 21)
+            ) as usize
     }
-        fn parse_frame(file_data: &[u8], init: usize, version: u8) -> Result<ID3v2Frame, TagError> {
+        fn parse_frame(file_data: &[u8], init: usize, version: u8) -> Result<(ID3v2Frame, usize), TagError> {
             let id: String;
             let size: u32;
             match version {
@@ -159,7 +168,11 @@ impl ID3v2 {
                         BitArray::create_from_byte(file_data[init+9], true),
                         BitArray::create_from_byte(file_data[init+9], true),
                     ];
-                    return ID3v2Frame::create_from_bytes(&file_data[init..(init+10+size)], version, id, size, flags)
+                    let frame = ID3v2Frame::create_from_bytes(&file_data[init..(init+10+size)], version, id, size, flags);
+                    match frame {
+                        Ok(x) => Ok((x, init+size)),
+                        Err(e) => Err(e)
+                    }
                 }
             _ => return Err(TagError::ParseError)
             }
@@ -178,7 +191,7 @@ impl ID3v2 {
 impl ID3v2Frame {
     pub fn create_from_bytes(bytes: &[u8], version: u8, id: String, size: usize, flags: [BitArray;2]) -> Result<ID3v2Frame, TagError> {
         let data = match id.chars().next().unwrap() {
-            T => { // text field
+            'T' => { // text field
                 let encoding = bytes[10];
                 ID3v2Frame::decode_text_frame(&bytes[11..], encoding)?
             }
