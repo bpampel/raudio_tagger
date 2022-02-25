@@ -2,8 +2,10 @@
 ///!
 ///! Both id3v1 and id3v2 are supported
 
-use std::error;
+use std::error::Error;
 use std::fmt;
+use std::io::BufRead;
+use std::io;
 use std::str;
 use crate::TagError;
 use encoding_rs;
@@ -132,6 +134,8 @@ impl ID3v2 {
                     let frame = ID3v2::parse_frame(&file_data, first_byte, *id3_version);
                     match frame {
                         Ok(x) => {
+                            println!("\nFound frame '{}'",x.0.id);
+                            println!("data: '{}'",x.0.data);
                             frames.push(x.0);
                             first_byte = x.1;  // x.1 contains last byte of parsed frame
                         }
@@ -161,7 +165,6 @@ impl ID3v2 {
                 2 => return Err(TagError::ParseError),  // currently not supported
                 3 | 4 => {
                     let id = unsafe_u8_to_str(&file_data[init..init+4]).to_string();
-                    println!("id: {}", id);
                     let size_vec = file_data[init+4..init+8].to_vec();
                     let size = read_be_u32(&mut &size_vec[..]) as usize;
                     let flags = [
@@ -191,13 +194,30 @@ impl ID3v2 {
 impl ID3v2Frame {
     pub fn create_from_bytes(bytes: &[u8], version: u8, id: String, size: usize, flags: [BitArray;2]) -> Result<ID3v2Frame, TagError> {
         let data = match id.chars().next().unwrap() {
-            'T' => { // text field
+            'T' => { // text field if not TXXX
                 let encoding = bytes[10];
                 ID3v2Frame::decode_text_frame(&bytes[11..], encoding)?
             }
+            'U' => {
+                match id.as_str() {
+                    "USLT" => {  // unsynced lyrics
+                        let encoding = bytes[10];
+                        println!("encoding: {}", encoding);
+                        let lang = unsafe_u8_to_str(&bytes[11..14]);
+                        println!("lang: {}", lang);
+                        let cont_descriptor = read_string_until(&bytes[14..], 0u8);
+                        println!("cont_descriptor: {:?}", cont_descriptor);
+                        ID3v2Frame::decode_text_frame(&bytes[15..], encoding)?
+                    }
+                    x => {
+                        println!("{}",x);
+                        return Err(TagError::TagsNotFoundError)
+                    }
+                }
+            }
             x => {
                 println!("{}",x);
-                return Err(TagError::ParseError)
+                return Err(TagError::TagsNotFoundError)
             }
         };
         //let data = match data_res {
@@ -291,6 +311,16 @@ fn read_be_u32(input: &mut &[u8]) -> u32 {
     let (int_bytes, rest) = input.split_at(std::mem::size_of::<u32>());
     *input = rest;
     u32::from_be_bytes(int_bytes.try_into().unwrap())
+}
+
+fn read_string_until(bytes: &[u8], delim: u8) -> Result<String, Box<dyn Error>> {
+    let byte_vec = bytes.to_vec();
+    let mut reader = io::Cursor::new(byte_vec);
+    let mut buffer = Vec::new();
+
+    reader.read_until(delim, &mut buffer)?;
+    let result = String::from_utf8(buffer)?;
+    Ok(result)
 }
 
 #[cfg(test)]
